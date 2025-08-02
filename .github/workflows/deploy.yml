@@ -1,9 +1,10 @@
 name: CI/CD Deployment to GKE
 
 on:
-  push:
-    branches:
-      - main
+  workflow_dispatch: # github action automatic trigger is disabled
+  # push:
+  #   branches:
+  #     - main
 
 env:
   PROJECT_ID: ${{ secrets.GCP_PROJECT_ID }}

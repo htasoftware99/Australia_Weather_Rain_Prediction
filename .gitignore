@@ -2,3 +2,4 @@ iris_mlops.egg-info
 logs
 src/__pycache__
 venv
+gcp-key.json
