@@ -3,7 +3,7 @@ version: 2.1
 executors:
   docker-executor:
     docker:
-      - image: google/cloud-sdk:latest
+      - image: cimg/gcp:2023.06  # Docker ve GCloud SDK içeren image
     working_directory: ~/repo
 
 jobs:
