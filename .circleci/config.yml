@@ -1,9 +1,9 @@
 version: 2.1
 
 executors:
-  docker-executor:
-    docker:
-      - image: google/cloud-sdk:latest
+  machine-executor:
+    machine:
+      image: ubuntu-2004:202201-02
     working_directory: ~/repo
 
 jobs:
