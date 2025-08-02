@@ -16,40 +16,115 @@ jobs:
     executor: docker-executor
     steps:
       - checkout
-      - setup_remote_docker
+      - setup_remote_docker:
+          version: 20.10.14
+          docker_layer_caching: true
+      
+      # Environment variables kontrolü
       - run:
-          name: Authenticate with google cloud
+          name: Check Environment Variables
           command: |
-              echo "$GCLOUD_SERVICE_KEY" | base64 --decode > gcp-key.json
-              gcloud auth activate-service-account --key-file=gcp-key.json
-              gcloud auth configure-docker us-central1-docker.pkg.dev || gcloud auth configure-docker
+            echo "Checking required environment variables..."
+            if [ -z "$GOOGLE_PROJECT_ID" ]; then
+              echo "Error: GOOGLE_PROJECT_ID is not set"
+              exit 1
+            fi
+            if [ -z "$GCLOUD_SERVICE_KEY" ]; then
+              echo "Error: GCLOUD_SERVICE_KEY is not set"
+              exit 1
+            fi
+            echo "Project ID: $GOOGLE_PROJECT_ID"
+            echo "All required environment variables are set"
+      
+      - run:
+          name: Authenticate with Google Cloud
+          command: |
+            echo "Authenticating with Google Cloud..."
+            echo "$GCLOUD_SERVICE_KEY" | base64 --decode > /tmp/gcp-key.json
+            gcloud auth activate-service-account --key-file=/tmp/gcp-key.json
+            gcloud config set project $GOOGLE_PROJECT_ID
+            
+            # Docker registry authentication
+            echo "Configuring Docker authentication..."
+            gcloud auth configure-docker us-central1-docker.pkg.dev --quiet
+            
+            # Test authentication
+            gcloud auth list
+            echo "Authentication completed successfully"
 
       - run:
-          name: Build and Push Image
+          name: Build and Push Docker Image
           command: |
-              docker build -t us-central1-docker.pkg.dev/$GOOGLE_PROJECT_ID/mlops-app/mlops-app:latest .
-              docker push us-central1-docker.pkg.dev/$GOOGLE_PROJECT_ID/mlops-app/mlops-app:latest
+            echo "Building Docker image..."
+            IMAGE_NAME="us-central1-docker.pkg.dev/$GOOGLE_PROJECT_ID/mlops-app/mlops-app:latest"
+            echo "Image name: $IMAGE_NAME"
+            
+            # Build image
+            docker build -t "$IMAGE_NAME" .
+            
+            echo "Pushing Docker image..."
+            docker push "$IMAGE_NAME"
+            
+            echo "Docker image built and pushed successfully"
 
   deploy_to_gke:
     executor: docker-executor
     steps:
       - checkout
-      - setup_remote_docker
+      - setup_remote_docker:
+          version: 20.10.14
+      
       - run:
-          name: Authenticate with google cloud
+          name: Check Environment Variables
           command: |
-              echo "$GCLOUD_SERVICE_KEY" | base64 --decode > gcp-key.json
-              gcloud auth activate-service-account --key-file=gcp-key.json
-              gcloud auth configure-docker us-central1-docker.pkg.dev || gcloud auth configure-docker
+            echo "Checking required environment variables for deployment..."
+            for var in GOOGLE_PROJECT_ID GCLOUD_SERVICE_KEY GKE_CLUSTER GOOGLE_COMPUTE_REGION; do
+              if [ -z "${!var}" ]; then
+                echo "Error: $var is not set"
+                exit 1
+              fi
+            done
+            echo "All required environment variables are set"
+      
+      - run:
+          name: Authenticate with Google Cloud
+          command: |
+            echo "Authenticating with Google Cloud..."
+            echo "$GCLOUD_SERVICE_KEY" | base64 --decode > /tmp/gcp-key.json
+            gcloud auth activate-service-account --key-file=/tmp/gcp-key.json
+            gcloud config set project $GOOGLE_PROJECT_ID
+            
+            echo "Authentication completed successfully"
       
       - run:
           name: Configure GKE
           command: |
-              gcloud container clusters get-credentials $GKE_CLUSTER --region $GOOGLE_COMPUTE_REGION --project $GOOGLE_PROJECT_ID
+            echo "Configuring GKE cluster access..."
+            gcloud container clusters get-credentials $GKE_CLUSTER \
+              --region $GOOGLE_COMPUTE_REGION \
+              --project $GOOGLE_PROJECT_ID
+            
+            # Test kubectl connection
+            kubectl cluster-info
+            echo "GKE configuration completed successfully"
+      
       - run:
           name: Deploy to GKE
           command: |
-              kubectl apply -f kubernetes-deployment.yaml
+            echo "Deploying to GKE..."
+            
+            # Update image in deployment if needed
+            kubectl set image deployment/mlops-app \
+              mlops-app=us-central1-docker.pkg.dev/$GOOGLE_PROJECT_ID/mlops-app/mlops-app:latest \
+              || echo "Deployment not found, applying from file..."
+            
+            # Apply deployment
+            kubectl apply -f kubernetes-deployment.yaml
+            
+            # Wait for rollout
+            kubectl rollout status deployment/mlops-app --timeout=300s
+            
+            echo "Deployment completed successfully"
 
 workflows:
   version: 2
