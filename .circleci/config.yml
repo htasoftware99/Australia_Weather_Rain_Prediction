@@ -1,9 +1,13 @@
+# .circleci/config.yml
 version: 2.1
 
 executors:
   gcp-executor:
     docker:
-      - image: cimg/google-cloud:latest
+      - image: cimg/google-cloud:2024.06.1  # Sabit versiyon, daha stabil
+        auth:
+          username: ${DOCKERHUB_USERNAME}
+          password: ${DOCKERHUB_TOKEN}
     working_directory: ~/repo
 
 jobs:
@@ -21,28 +25,30 @@ jobs:
       - run:
           name: Authenticate with Google Cloud
           command: |
-              echo "$GCLOUD_SERVICE_KEY" | base64 --decode > gcp-key.json
-              gcloud auth activate-service-account --key-file=gcp-key.json
-              gcloud auth configure-docker us-central1-docker.pkg.dev --quiet
+            echo "$GCLOUD_SERVICE_KEY" | base64 --decode > gcp-key.json
+            gcloud auth activate-service-account --key-file=gcp-key.json
+            gcloud config set project $GOOGLE_PROJECT_ID
+            gcloud auth configure-docker us-central1-docker.pkg.dev --quiet
 
       - run:
-          name: Build and Push Image
+          name: Build and Push Docker Image
           command: |
-              docker build -t us-central1-docker.pkg.dev/$GOOGLE_PROJECT_ID/mlops-app/mlops-app:latest .
-              docker push us-central1-docker.pkg.dev/$GOOGLE_PROJECT_ID/mlops-app/mlops-app:latest
+            docker build -t us-central1-docker.pkg.dev/$GOOGLE_PROJECT_ID/mlops-app/mlops-app:latest .
+            docker push us-central1-docker.pkg.dev/$GOOGLE_PROJECT_ID/mlops-app/mlops-app:latest
 
   deploy_to_gke:
     executor: gcp-executor
     steps:
       - checkout
       - run:
-          name: Authenticate and Deploy
+          name: Deploy to GKE
           command: |
-              echo "$GCLOUD_SERVICE_KEY" | base64 --decode > gcp-key.json
-              gcloud auth activate-service-account --key-file=gcp-key.json
-              gcloud config set project $GOOGLE_PROJECT_ID
-              gcloud container clusters get-credentials $GKE_CLUSTER --region $GOOGLE_COMPUTE_REGION
-              kubectl apply -f kubernetes-deployment.yaml
+            echo "$GCLOUD_SERVICE_KEY" | base64 --decode > gcp-key.json
+            gcloud auth activate-service-account --key-file=gcp-key.json
+            gcloud config set project $GOOGLE_PROJECT_ID
+            gcloud container clusters get-credentials $GKE_CLUSTER --region $GOOGLE_COMPUTE_REGION
+
+            kubectl apply -f kubernetes-deployment.yaml
 
 workflows:
   version: 2
